@@ -2,8 +2,10 @@
 
 A tiny static site that shows the menu PDF as a normal web page: full width, pages
 stacked with no gaps, no PDF toolbar, no page numbers. A **TR / EN** switch at the
-top right of the screen changes between the Turkish and the English menu. When a
-guest zooms in, the part on screen is redrawn so the text stays sharp.
+top right changes between the Turkish and the English menu. Empty space at the
+sides of the PDF is trimmed off automatically, so on a phone the menu itself fills
+the screen. When a guest zooms in, the part on screen is redrawn so the text stays
+sharp.
 
 ## Add the menus
 
@@ -93,11 +95,17 @@ one file.
 
 ## Optional tweaks (top of `index.html`)
 
-- `--max-width`: how wide the menu gets on computers (default `960px`; use `100%` for edge to edge).
+- `--max-width`: how wide the menu gets on computers (default `560px`; a bigger
+  number gives bigger text, `100%` goes edge to edge).
 - `--bg`: the background color. It is picked automatically from the edge of
   your PDF, so you usually don't need to change it.
 - `--accent`: the color of the selected language in the TR / EN switch.
 - `--ink`: the text color of the switch (turns white automatically on a dark menu).
+
+And at the top of `app.js`:
+
+- `SIDE_PADDING`: how much border is kept at each side after the empty sides of
+  the PDF are trimmed off (default `0.04`, which is 4% of the menu's width).
 
 ## Files
 

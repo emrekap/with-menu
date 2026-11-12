@@ -27,6 +27,11 @@ const PDFJS_DIR = "vendor/pdfjs/";
 // Browsers (iOS Safari especially) refuse to draw canvases larger than this.
 const MAX_CANVAS_PIXELS = 16_777_216;
 
+// Empty space at the sides of the PDF is trimmed off, so the menu itself fills
+// the screen. This much is kept as a border on each side, as a share of the
+// menu's own width (0.04 = 4%).
+const SIDE_PADDING = 0.04;
+
 // When a guest zooms in, the part on screen is drawn again, sharp. This much
 // extra around the screen is drawn too (0.25 = a quarter of a screen on every
 // side), so moving a little does not need a new drawing.
@@ -134,17 +139,59 @@ async function openMenu(lang) {
     standardFontDataUrl: absolute(`${PDFJS_DIR}standard_fonts/`),
   }).promise;
 
-  // A box with the right shape for every page, so nothing jumps while rendering.
   const pages = [];
+  let emptySide = 0.5;
   for (let n = 1; n <= pdf.numPages; n++) {
     const page = await pdf.getPage(n);
     const size = page.getViewport({ scale: 1 });
     const el = document.createElement("section");
     el.className = "page";
-    el.style.aspectRatio = `${size.width} / ${size.height}`;
-    pages.push({ page, size, el, canvas: null, renderedFor: "", detail: null });
+    pages.push({ page, size, el, crop: null, canvas: null, renderedFor: "", detail: null });
+    emptySide = Math.min(emptySide, await measureEmptySide(page, size));
+  }
+
+  // Trim the empty sides. The same amount left and right and on every page,
+  // so the menu stays centered and the pages line up.
+  const menuWidth = 1 - 2 * emptySide;
+  const trim = menuWidth > 0 ? Math.max(0, emptySide - menuWidth * SIDE_PADDING) : 0;
+  const crop = { left: trim, width: 1 - 2 * trim }; // shares of the page width
+  for (const entry of pages) {
+    entry.crop = crop;
+    // A box with the right shape for every page, so nothing jumps while rendering.
+    entry.el.style.aspectRatio = `${entry.size.width * crop.width} / ${entry.size.height}`;
   }
   return { lang, pages, hasExtras: false };
+}
+
+// How much of a page's sides is empty: the share of its width, counted in from
+// both edges, where nothing is drawn. Measured on a small drawing of the page.
+async function measureEmptySide(page, size) {
+  const viewport = page.getViewport({ scale: 400 / size.width });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.floor(viewport.width);
+  canvas.height = Math.floor(viewport.height);
+  await page.render({ canvas, viewport }).promise;
+
+  const { width, height } = canvas;
+  const { data } = canvas.getContext("2d").getImageData(0, 0, width, height);
+  // Empty = about the same color as the top left corner.
+  const isEmpty = (x, y) => {
+    const i = (y * width + x) * 4;
+    return (
+      Math.abs(data[i] - data[0]) +
+        Math.abs(data[i + 1] - data[1]) +
+        Math.abs(data[i + 2] - data[2]) <
+      30
+    );
+  };
+  let empty = Math.floor(width / 2);
+  for (let y = 0; y < height; y++) {
+    let x = 0;
+    while (x < empty && isEmpty(x, y) && isEmpty(width - 1 - x, y)) x++;
+    empty = x;
+  }
+  canvas.width = canvas.height = 0; // free memory on iOS
+  return empty / width;
 }
 
 // Draws a menu at the current screen width and puts it on screen. Calling it
@@ -181,13 +228,16 @@ async function renderPage(entry, cssWidth) {
   const key = `${cssWidth}@${pixelRatio}`;
   if (entry.renderedFor === key) return;
 
-  let scale = (cssWidth / entry.size.width) * pixelRatio;
-  const pixels = entry.size.width * entry.size.height * scale * scale;
+  // Only the part between the trimmed sides is drawn.
+  const { size, crop } = entry;
+  const keptWidth = size.width * crop.width;
+  let scale = (cssWidth / keptWidth) * pixelRatio;
+  const pixels = keptWidth * size.height * scale * scale;
   if (pixels > MAX_CANVAS_PIXELS) scale *= Math.sqrt(MAX_CANVAS_PIXELS / pixels);
 
-  const viewport = entry.page.getViewport({ scale });
+  const viewport = entry.page.getViewport({ scale, offsetX: -size.width * crop.left * scale });
   const canvas = document.createElement("canvas");
-  canvas.width = Math.floor(viewport.width);
+  canvas.width = Math.floor(keptWidth * scale);
   canvas.height = Math.floor(viewport.height);
   canvas.setAttribute("aria-hidden", "true");
 
@@ -281,10 +331,11 @@ async function sharpen() {
     const pixels = (part.right - part.left) * (part.bottom - part.top) * ratio * ratio;
     if (pixels > MAX_CANVAS_PIXELS) ratio *= Math.sqrt(MAX_CANVAS_PIXELS / pixels);
 
-    // Size the whole page would have at this zoom. Only `part` of it is drawn.
+    // Size the whole page box would have at this zoom. Only `part` of it is drawn.
     const fullWidth = box.width * ratio;
     const fullHeight = box.height * ratio;
-    const scale = fullWidth / entry.size.width;
+    const scale = fullWidth / (entry.size.width * entry.crop.width);
+    const trimmed = entry.size.width * entry.crop.left * scale; // cut off at the left
 
     // Nothing to do if the last sharp drawing still covers the screen.
     const old = entry.detail;
@@ -317,7 +368,7 @@ async function sharpen() {
 
     const task = entry.page.render({
       canvas,
-      viewport: entry.page.getViewport({ scale, offsetX: -x, offsetY: -y }),
+      viewport: entry.page.getViewport({ scale, offsetX: -x - trimmed, offsetY: -y }),
     });
     sharpenTask = task;
     try {
@@ -412,7 +463,7 @@ function matchBackground(canvas) {
 }
 
 // Keeps links from the PDF (website, Instagram, phone number...) clickable.
-async function addLinks({ page, size, el }) {
+async function addLinks({ page, size, crop, el }) {
   const annotations = await page.getAnnotations();
   for (const a of annotations) {
     if (a.subtype !== "Link" || !a.url) continue;
@@ -424,11 +475,12 @@ async function addLinks({ page, size, el }) {
     link.target = "_blank";
     link.rel = "noopener";
     link.setAttribute("aria-label", a.url);
-    // Percentages keep the link in place at any screen size.
+    // Percentages keep the link in place at any screen size. Left and width
+    // are counted inside the part of the page that is left after trimming.
     Object.assign(link.style, {
-      left: `${(Math.min(x1, x2) / size.width) * 100}%`,
+      left: `${((Math.min(x1, x2) / size.width - crop.left) / crop.width) * 100}%`,
       top: `${(Math.min(y1, y2) / size.height) * 100}%`,
-      width: `${(Math.abs(x2 - x1) / size.width) * 100}%`,
+      width: `${(Math.abs(x2 - x1) / size.width / crop.width) * 100}%`,
       height: `${(Math.abs(y2 - y1) / size.height) * 100}%`,
     });
     el.append(link);

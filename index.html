@@ -16,8 +16,10 @@
         /* Page background. It is replaced automatically with the color at the
          edge of your PDF, so the menu blends into the page. */
         --bg: #f5efe6;
-        /* How wide the menu can get on big screens. Use 100% for full width. */
-        --max-width: 960px;
+        /* How wide the menu can get on big screens. Use 100% for full width.
+         (The empty sides of the PDF are trimmed off, so this is the width of
+         the menu itself. A bigger number means bigger text on computers.) */
+        --max-width: 560px;
         /* TR / EN switch: color of the selected language, and of the text. The
          text turns white automatically if the menu is dark. */
         --accent: #915d3e;
@@ -47,8 +49,11 @@
         opacity: 0.4;
       }
 
+      /* On phones the switch sits at the top of the page and scrolls away with
+       it, so it never covers a price. On wide screens (see below) it stays in
+       the corner of the screen. */
       .lang {
-        position: fixed;
+        position: absolute;
         top: 10px;
         right: 10px;
         z-index: 1;
@@ -111,8 +116,9 @@
         outline-offset: 2px;
       }
 
-      @media (min-width: 700px) {
+      @media (min-width: 800px) {
         .lang {
+          position: fixed;
           top: 16px;
           right: 16px;
         }
