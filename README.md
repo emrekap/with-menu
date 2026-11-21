@@ -36,7 +36,19 @@ work, because browsers block PDF loading from `file://`.)
 ## Deploy to Cloudflare Pages
 
 The site is hosted on [Cloudflare Pages](https://pages.cloudflare.com/) as the
-project **`with-menu`**. The live address is <https://with-menu.pages.dev>.
+project **`with-menu`**. The live address is <https://withnisantasi.com>
+(`www.withnisantasi.com` works too).
+
+**Always use `withnisantasi.com` in QR codes and links, never
+`with-menu.pages.dev`.** Türkiye blocks the whole `pages.dev` domain (since
+November 2025), so guests on Turkish networks can't open a `pages.dev` address.
+The site still answers at <https://with-menu.pages.dev>, but only outside
+Türkiye.
+
+The domain's DNS must stay on Cloudflare, with both records **proxied** (orange
+cloud). A DNS-only record, or DNS at another provider, would show
+`with-menu.pages.dev` to the guest's internet provider and the block would hit
+again.
 
 There is no build step and no GitHub connection: a deploy uploads this folder
 as it is, from your computer.
@@ -63,7 +75,7 @@ npx wrangler pages deploy . --project-name=with-menu --branch=main
 ```
 
 `--branch=main` is what makes it the live version. When the command finishes,
-the new version is live at <https://with-menu.pages.dev>. Open it and check
+the new version is live at <https://withnisantasi.com>. Open it and check
 both languages.
 
 ### Try a version before it goes live
@@ -112,5 +124,7 @@ And at the top of `app.js`:
 - `index.html`: the page
 - `app.js`: draws the PDF pages and switches language
 - `menu-tr.pdf`, `menu-en.pdf`: the menus
+- `qr/`: print-ready QR codes (SVG for print shops, 2000 px PNG). `menu-qr` opens
+  <https://withnisantasi.com>, `menu-qr-en` opens the English menu directly.
 - `vendor/pdfjs/`: [PDF.js](https://mozilla.github.io/pdf.js/) 6.5.438 (Mozilla's PDF renderer), stored locally so the site doesn't depend on any other server
 - `.wrangler/`: created by the deploy command to remember the Cloudflare project. It is not uploaded and is safe to delete.
